@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=375, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>扭蛋机 · 物理 + 钩爪（Frame「扭蛋机」图层对齐）</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+
+    body {
+      min-height: 100vh;
+      background: #222;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 16px 0 24px;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Inter', sans-serif;
+    }
+
+    .machine {
+      position: relative;
+      width: 375px;
+      height: 812px;
+      background: #ffffff;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    /* 扭蛋机bg XDkAv：机台 (26,181) 324×324 */
+    .machine-bg {
+      position: absolute;
+      left: 26px;
+      top: 181px;
+      width: 324px;
+      height: 324px;
+      object-fit: fill;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* 扭蛋移动范围：机台 (26,165) 324×343；钩爪横向在图层「钩爪移动范围」基础上左右各 +20px，可超出此宽 */
+    .physics-stack {
+      position: absolute;
+      left: 26px;
+      top: 165px;
+      width: 324px;
+      height: 343px;
+      overflow: visible;
+      z-index: 2;
+    }
+
+    .physics-stack canvas {
+      display: block;
+      width: 324px;
+      height: 343px;
+      vertical-align: top;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* 图层「挡板」装饰图：机台 (106,418) 19×83 → play (80,253)；碰撞体「挡板范围」见 BAFFLE_RANGE（未抓起 Frame XQlHV） */
+    .physics-baffle {
+      position: absolute;
+      left: 80px;
+      top: 253px;
+      width: 19px;
+      height: 83px;
+      object-fit: fill;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .claw-rig {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 324px;
+      height: 343px;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    /* 绳相对爪水平偏移 56px（未抓起/抓起 Frame 均为 绳x - 爪x = 56） */
+    .rope {
+      position: absolute;
+      left: 43px;
+      top: -4px;
+      width: 15px;
+      height: 40px;
+      object-fit: fill;
+      transform-origin: top center;
+    }
+
+    /* 爪 Frame「扭蛋机_未抓起扭蛋」：机台 (13,200) → play (-13,35) */
+    .claw {
+      position: absolute;
+      left: -13px;
+      top: 35px;
+      width: 129px;
+      height: 120px;
+      object-fit: contain;
+      pointer-events: none;
+    }
+
+    /* 扭蛋机 WhLq3 */
+    .machine-img {
+      position: absolute;
+      left: 10.5px;
+      top: 150px;
+      width: 353px;
+      height: 422px;
+      object-fit: fill;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    /* 防穿帮 EEdS3：机台 (11,150) 352×422，盖住扭蛋 canvas */
+    .anti-clip {
+      position: absolute;
+      left: 11px;
+      top: 150px;
+      width: 352px;
+      height: 422px;
+      object-fit: fill;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .btn {
+      position: absolute;
+      z-index: 10;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: normal;
+      color: #000000;
+      background: #cccccc;
+      border-radius: 141px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+    }
+
+    .btn:active:not(:disabled) { filter: brightness(0.92); }
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn.reset { left: 114px; top: 81px; width: 130px; height: 40px; }
+    .btn.plus { left: 256px; top: 81px; width: 69px; height: 40px; font-size: 20px; }
+    .btn.grab { left: 122px; top: 647px; width: 130px; height: 40px; text-transform: lowercase; }
+    .btn.drop { left: 122px; top: 704px; width: 130px; height: 40px; text-transform: lowercase; }
+    .btn.left { left: 24px; top: 647px; width: 90px; height: 40px; text-transform: lowercase; }
+    .btn.right { left: 261px; top: 647px; width: 90px; height: 40px; text-transform: lowercase; }
+
+    /* Frame「扭蛋机_未抓起扭蛋」group「积分」bRhLs：机台 (72,585) 231×47 */
+    .score-panel {
+      position: absolute;
+      left: 72px;
+      top: 585px;
+      width: 231px;
+      height: 47px;
+      background: #8affcc;
+      border: 4px solid #000000;
+      border-radius: 9px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px 0 18px;
+      pointer-events: none;
+      z-index: 11;
+    }
+
+    .score-panel .score-label {
+      font-size: 24px;
+      font-style: italic;
+      font-weight: 900;
+      color: #000000;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    .score-panel .score-value {
+      font-size: 24px;
+      font-style: italic;
+      font-weight: 900;
+      color: #000000;
+      line-height: 1;
+      min-width: 1.2em;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 与积分+1 同款的自下而上淡入淡出（多图层复用） */
+    .fx-float-pop {
+      position: absolute;
+      pointer-events: none;
+      z-index: 12;
+      opacity: 0;
+      transform: translateY(24px);
+      will-change: transform, opacity;
+    }
+
+    .fx-float-pop.fx-float-pop--animating {
+      animation: scorePlusOneFloat 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .fx-float-pop img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+
+    /* Frame「扭蛋机_成功掉落」图层「积分+1」t5jaF：机台 (148,539) 78×72 */
+    .score-plus-fx {
+      left: 148px;
+      top: 539px;
+      width: 78px;
+      height: 72px;
+    }
+
+    /* Frame「扭蛋机_成功掉落」图层「+5s」EhMck：机台 (142,7) 88×49 */
+    .bonus-5s-fx {
+      left: 142px;
+      top: 7px;
+      width: 88px;
+      height: 49px;
+    }
+
+    /* Frame「扭蛋机_失败」图层「明天再来吧」1ENjH：机台 (75,316) 236×59 */
+    .fail-tomorrow-fx {
+      left: 75px;
+      top: 316px;
+      width: 236px;
+      height: 59px;
+    }
+
+    /* Frame「扭蛋机_未抓起扭蛋」倒计时文本 5pGt2：机台 (115.5,51.5) */
+    .rush-countdown {
+      position: absolute;
+      left: 115.5px;
+      top: 51.5px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+      font-size: 16px;
+      font-style: italic;
+      font-weight: 900;
+      color: #000000;
+      line-height: 1.2;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 13;
+      visibility: hidden;
+    }
+
+    @keyframes scorePlusOneFloat {
+      0% {
+        opacity: 0;
+        transform: translateY(28px);
+      }
+      14% {
+        opacity: 1;
+      }
+      42% {
+        opacity: 1;
+        transform: translateY(-6px);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(-72px);
+      }
+    }
+
+    .hint {
+      max-width: 375px;
+      margin-top: 12px;
+      padding: 0 12px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.55);
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .hint code {
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="machine" id="machine">
+    <button type="button" class="btn reset" id="resetBtn">RESET</button>
+    <button type="button" class="btn plus" id="plusBtn">+</button>
+    <button type="button" class="btn left" id="leftBtn">left</button>
+    <button type="button" class="btn right" id="rightBtn">right</button>
+    <button type="button" class="btn grab" id="grabBtn">grab</button>
+    <button type="button" class="btn drop" id="dropBtn" disabled>drop</button>
+
+    <img
+      class="machine-bg"
+      src="./扭蛋机bg.png"
+      alt=""
+      draggable="false"
+      onerror="this.style.display='none'"
+    />
+
+    <div class="physics-stack" id="physicsStack">
+      <canvas id="sim" width="324" height="343"></canvas>
+      <img
+        class="physics-baffle"
+        src="./挡板.png"
+        alt=""
+        draggable="false"
+        width="19"
+        height="83"
+        onerror="this.style.visibility='hidden'"
+      />
+      <div class="claw-rig" id="clawRig">
+        <img class="rope" id="ropeImg" src="./绳子.png" alt="" draggable="false" />
+        <img class="claw" id="clawImg" src="./claw_close/Comp 1_00009.png" alt="" draggable="false" />
+      </div>
+    </div>
+
+    <img
+      class="machine-img"
+      src="./扭蛋机.png"
+      alt=""
+      draggable="false"
+      onerror="this.style.visibility='hidden'"
+    />
+    <img
+      class="anti-clip"
+      src="./防穿帮3.png"
+      alt=""
+      draggable="false"
+      onerror="this.onerror=null;this.src='./防穿帮.png'"
+    />
+
+    <div class="score-panel" id="scorePanel" aria-live="polite">
+      <span class="score-label">积分</span>
+      <span class="score-value" id="scoreValue">0</span>
+    </div>
+    <div id="rushCountdown" class="rush-countdown" aria-live="polite">倒计时：00:00:10</div>
+    <div class="fx-float-pop score-plus-fx" id="scorePlusFx" aria-hidden="true">
+      <img src="./积分+1.png" alt="" draggable="false" onerror="this.style.visibility='hidden'" />
+    </div>
+    <div class="fx-float-pop bonus-5s-fx" id="bonus5sFx" aria-hidden="true">
+      <img src="./+5s.png" alt="" draggable="false" onerror="this.style.visibility='hidden'" />
+    </div>
+    <div class="fx-float-pop fail-tomorrow-fx" id="failTomorrowFx" aria-hidden="true">
+      <img src="./明天再来吧.png" alt="" draggable="false" onerror="this.style.visibility='hidden'" />
+    </div>
+  </div>
+
+  <p class="hint">
+    参考 Frame <strong>扭蛋机_未抓起扭蛋</strong> / <strong>扭蛋机_抓起扭蛋</strong>：绳长随爪顶自动伸长；夹住收绳后爪位对齐抓起 Frame。图层 <strong>挡板</strong> 使用 <code>挡板.png</code> 叠在 canvas 上（z 在蛋与爪之间）；物理为图层 <strong>挡板范围</strong>（Frame「扭蛋机_未抓起扭蛋」机台 103,418，18×82）。从爪 <code>drop</code>：若在夹持时已处于成功区则直接竖槽消失；否则保持真实碰撞直至先碰到 <strong>挡板范围</strong>，再在进入成功区后，才沿 <strong>扭蛋掉落范围</strong>（填充 83×388）竖直下落并穿出底边消失。竖槽下落中，仅当蛋心进入 Frame「扭蛋机_成功掉落」图层 <strong>积分动画触发范围</strong>（机台 31,459 85×113）时 <strong>积分 +1</strong> 并播放 <code>积分+1.png</code> 动效（每颗蛋一次）。背景 <code>扭蛋机bg.png</code>，防穿帮 <code>防穿帮3.png</code>。
+  </p>
+
+  <script>
+(function () {
+  const Matter = window.Matter;
+  if (!Matter) return;
+
+  const { Engine, Runner, Bodies, Body, Composite, Events } = Matter;
+
+  /**
+   * 坐标原点 = 图层「扭蛋移动范围」Cdgfn 左上角（机台 26,165）
+   * 扭蛋移动范围：324×343
+   */
+  const W = 324;
+  const H = 343;
+
+  /** 扭蛋掉落范围（描边 3vaTX）：机台 (110,165) 240×343 — 与移动范围同起点，宽区参考 */
+  const DROP_ZONE = { x: 110 - 26, y: 165 - 165, w: 240, h: 343 };
+
+  /**
+   * 扭蛋掉落范围（填充 qIweh / OJEP5）：机台 (31,184) 83×388
+   * 成功判定区内 drop：蛋仅竖直下落，x 钳在此宽内，穿出矩形底边后从模拟中移除（消失）
+   */
+  const CHUTE_FALL_RANGE = { x: 31 - 26, y: 184 - 165, w: 83, h: 388 };
+
+  /** 扭蛋掉落成功判定范围 xACw5（Frame「扭蛋机_未抓起扭蛋」）：机台 (31,444) 83×56 */
+  const SUCCESS_ZONE = { x: 31 - 26, y: 444 - 165, w: 83, h: 56 };
+
+  /**
+   * Frame「扭蛋机_成功掉落」图层「积分动画触发范围」lIauM：机台 (31,459) 85×113
+   * 仅当竖槽下落中的扭蛋蛋心进入此矩形时，积分 +1 并播放「积分+1」动效（每颗蛋最多一次）
+   */
+  const SCORE_TRIGGER_ZONE = { x: 31 - 26, y: 459 - 165, w: 85, h: 113 };
+
+  /** 挡板范围 XQlHV / 0UDTH（Frame「扭蛋机_未抓起扭蛋」）：机台 (103,418) 18×82 — Matter 碰撞体 */
+  const BAFFLE_RANGE = { x: 103 - 26, y: 418 - 165, w: 18, h: 82 };
+
+  /** Frame 扭蛋 67×67 */
+  const EGG_R_DRAW = 67 / 2;
+  const EGG_R_PHYS = 67 / 2;
+
+  const CLAW_W = 129;
+  const CLAW_H = 120;
+
+  const PEN_EGG_CENTER_DX_FROM_CLAW_LEFT = 64.5;
+  /** 未抓起下探对齐用；抓起夹稳后蛋心相对爪顶（Frame 扭蛋机_抓起扭蛋） */
+  const PEN_EGG_DY_GRAB = 119.5;
+  const PEN_EGG_DY_HELD = 113.5;
+
+  const ALIGN_CENTER_X_MAX = 7;
+  const ALIGN_DEPTH_Y_MAX = 26;
+
+  /** Frame 扭蛋机_未抓起扭蛋：爪 y=200→play35；绳 y=161→play -4 */
+  const CLAW_TOP_IDLE = 35;
+  /**
+   * Frame 扭蛋机_抓起扭蛋（Hu6n7）：爪 UeKX4 y=199→play34；绳 WUSeu y=160→play -5，绳高 40
+   * 绳顶～爪底整体高度 = (34+120)−(−5) = 159px（与图层一致）
+   */
+  const CLAW_TOP_HELD_RETRACT = 34;
+  /** 抓起时绳顶相对未抓起：160−161 = −1（play 上移 1px） */
+  const HELD_ROPE_TOP_DELTA = -1;
+
+  const ROPE_BASE_H = 40;
+  const ROPE_TOP = -4;
+  const CLAW_LEFT_BASE = -13;
+  /** 绳左 = 爪左 + 56（69-13=56，两 Frame 一致） */
+  const ROPE_LEFT_IN_RIG = CLAW_LEFT_BASE + 56;
+  const MAX_ROPE_EXTEND = 175;
+
+  /**
+   * 图层「钩爪移动范围」Q4dNu：机台 (11,165) 353×343（与扭蛋区同高，左右各宽出一段）
+   * 扭蛋移动范围原点 = 机台 (26,165) → 设计 play 横向 [11-26, 11+353-26]；再左右各加 CLAW_RANGE_PAD（相对设计框外扩）
+   * 爪图左缘 = clawPanX + CLAW_LEFT_BASE，右缘 = + CLAW_W
+   */
+  const CLAW_RANGE_PAD = 20;
+  const CLAW_RANGE_PLAY = {
+    left: 11 - 26 - CLAW_RANGE_PAD,
+    right: 11 + 353 - 26 + CLAW_RANGE_PAD,
+  };
+  const PAN_MIN = CLAW_RANGE_PLAY.left - CLAW_LEFT_BASE;
+  const PAN_MAX = CLAW_RANGE_PLAY.right - CLAW_LEFT_BASE - CLAW_W;
+  const PAN_STEP = 9;
+  const PAN_REPEAT_MS = 68;
+  const INITIAL_PAN = Math.round((PAN_MIN + PAN_MAX) / 2);
+
+  const MAX_EGGS = 10;
+  /** 每次点击 + 依次补蛋数量与间隔（ms） */
+  const PLUS_BURST_COUNT = 4;
+  const PLUS_BURST_INTERVAL_MS = 140;
+  /** 点击 + 后限时挑战默认秒数；成功掉落触发积分时 +5s */
+  const RUSH_DEFAULT_SEC = 10;
+  const RUSH_BONUS_ON_SUCCESS_SEC = 5;
+  const OPEN_FRAMES = 6;
+
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const ropeEl = document.getElementById('ropeImg');
+  const clawEl = document.getElementById('clawImg');
+  const clawRig = document.getElementById('clawRig');
+
+  const plusBtn = document.getElementById('plusBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const grabBtn = document.getElementById('grabBtn');
+  const dropBtn = document.getElementById('dropBtn');
+  const scoreValueEl = document.getElementById('scoreValue');
+  const scorePlusFxEl = document.getElementById('scorePlusFx');
+  const rushCountdownEl = document.getElementById('rushCountdown');
+  const bonus5sFxEl = document.getElementById('bonus5sFx');
+  const failTomorrowFxEl = document.getElementById('failTomorrowFx');
+
+  let score = 0;
+  let rushRemainingSec = 0;
+  let rushTimerId = null;
+  let rushRoundActive = false;
+  /** 本轮 + 挑战倒计时已归零（明天再来吧）后，成功掉落不再加分，直至再次点 + */
+  let rushExpired = false;
+
+  function updateScoreDom() {
+    if (scoreValueEl) scoreValueEl.textContent = String(score);
+  }
+
+  function playFloatPopFx(el) {
+    if (!el) return;
+    el.classList.remove('fx-float-pop--animating');
+    void el.offsetWidth;
+    el.classList.add('fx-float-pop--animating');
+  }
+
+  document.querySelectorAll('.fx-float-pop').forEach((el) => {
+    el.addEventListener('animationend', () => el.classList.remove('fx-float-pop--animating'));
+  });
+
+  function formatRushTime(sec) {
+    const s = Math.max(0, Math.ceil(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    return `倒计时：${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+
+  function updateRushCountdownDom() {
+    if (!rushCountdownEl) return;
+    rushCountdownEl.textContent = formatRushTime(rushRemainingSec);
+    rushCountdownEl.style.visibility = rushRoundActive ? 'visible' : 'hidden';
+  }
+
+  function stopRushTimer() {
+    if (rushTimerId !== null) {
+      clearInterval(rushTimerId);
+      rushTimerId = null;
+    }
+  }
+
+  function onRushExpired() {
+    stopRushTimer();
+    rushRoundActive = false;
+    rushExpired = true;
+    rushRemainingSec = 0;
+    updateRushCountdownDom();
+    playFloatPopFx(failTomorrowFxEl);
+  }
+
+  function tickRush() {
+    rushRemainingSec -= 1;
+    if (rushRemainingSec <= 0) {
+      rushRemainingSec = 0;
+      updateRushCountdownDom();
+      onRushExpired();
+      return;
+    }
+    updateRushCountdownDom();
+  }
+
+  /** 每次成功开始 + 连发时启动/重置为默认 10s */
+  function startRushCountdown() {
+    stopRushTimer();
+    rushExpired = false;
+    rushRemainingSec = RUSH_DEFAULT_SEC;
+    rushRoundActive = true;
+    updateRushCountdownDom();
+    rushTimerId = setInterval(tickRush, 1000);
+  }
+
+  function eggCenterInScoreTriggerZone(cx, cy) {
+    const z = SCORE_TRIGGER_ZONE;
+    return cx >= z.x && cx <= z.x + z.w && cy >= z.y && cy <= z.y + z.h;
+  }
+
+  /** 蛋心已进入「积分动画触发范围」时调用：积分 +1 并播放动效 */
+  function onScoreTriggerAward() {
+    if (rushExpired) return;
+    score += 1;
+    updateScoreDom();
+    playFloatPopFx(scorePlusFxEl);
+    if (rushRoundActive) {
+      rushRemainingSec += RUSH_BONUS_ON_SUCCESS_SEC;
+      updateRushCountdownDom();
+      playFloatPopFx(bonus5sFxEl);
+    }
+  }
+
+  const eggImg = new Image();
+  eggImg.src = './像素风扭蛋.png';
+
+  function openPath(i) {
+    return `./claw_open/Comp 1_${String(i).padStart(5, '0')}.png`;
+  }
+  function closePath(i) {
+    return `./claw_close/Comp 1_${String(i).padStart(5, '0')}.png`;
+  }
+
+  function preloadSeq(folder, from, to) {
+    for (let i = from; i <= to; i++) {
+      const im = new Image();
+      im.src = folder === 'open' ? openPath(i) : closePath(i);
+    }
+  }
+  preloadSeq('open', 0, 5);
+  for (let i = 1; i <= 9; i++) {
+    const im = new Image();
+    im.src = closePath(i);
+  }
+  (function preloadRushFx() {
+    ['./+5s.png', './明天再来吧.png'].forEach((src) => {
+      const im = new Image();
+      im.src = src;
+    });
+  })();
+
+  let clawPanX = INITIAL_PAN;
+  let ropeExtend = 0;
+  let busy = false;
+  let heldAngle = 0;
+  let heldEgg = null;
+
+  const engine = Engine.create({ enableSleeping: true });
+  const world = engine.world;
+  world.gravity.y = 1.15;
+  world.gravity.scale = 0.0012;
+  engine.positionIterations = 12;
+  engine.velocityIterations = 10;
+
+  const wallThickness = 56;
+  const wallCommon = { isStatic: true, friction: 0.08, restitution: 0.08 };
+
+  const leftWall = Bodies.rectangle(-wallThickness / 2, H / 2 - 40, wallThickness, H + 320, { ...wallCommon });
+  const rightWall = Bodies.rectangle(W + wallThickness / 2, H / 2 - 40, wallThickness, H + 320, { ...wallCommon });
+  const ground = Bodies.rectangle(W / 2, H + wallThickness / 2 - 2, W + wallThickness * 2, wallThickness, {
+    isStatic: true,
+    friction: 0.22,
+    restitution: 0.52,
+  });
+
+  const baffleCx = BAFFLE_RANGE.x + BAFFLE_RANGE.w / 2;
+  const baffleCy = BAFFLE_RANGE.y + BAFFLE_RANGE.h / 2;
+  const baffleBody = Bodies.rectangle(baffleCx, baffleCy, BAFFLE_RANGE.w, BAFFLE_RANGE.h, {
+    isStatic: true,
+    friction: 0.35,
+    frictionStatic: 0.6,
+    restitution: 0.18,
+    label: 'baffleRange',
+  });
+
+  Composite.add(world, [leftWall, rightWall, ground, baffleBody]);
+
+  /** 从爪释放的蛋（非直接竖槽）碰到挡板后，再进入成功区才切竖槽消失；此前保持完整碰撞 */
+  Events.on(engine, 'collisionStart', (e) => {
+    const pairs = e.pairs;
+    for (let i = 0; i < pairs.length; i++) {
+      const { bodyA, bodyB } = pairs[i];
+      const eggA = bodyA.label === 'egg';
+      const eggB = bodyB.label === 'egg';
+      const bafA = bodyA.label === 'baffleRange';
+      const bafB = bodyB.label === 'baffleRange';
+      if (!((eggA && bafB) || (eggB && bafA))) continue;
+      const eggBody = eggA ? bodyA : bodyB;
+      if (eggBody._droppedFromClaw && !eggBody._chuteFall) eggBody._hitBaffleAfterDrop = true;
+    }
+  });
+
+  const eggs = [];
+
+  function eggStyle() {
+    return {
+      label: 'egg',
+      friction: 0.35,
+      frictionStatic: 0.55,
+      frictionAir: 0.008,
+      restitution: 0.62,
+      density: 0.0018,
+      slop: 0.02,
+    };
+  }
+
+  /** 成功掉落：不与墙/地/挡板碰撞，仅受重力，竖直下落 */
+  function eggStyleChuteFall() {
+    return {
+      ...eggStyle(),
+      label: 'eggChuteFall',
+      frictionAir: 0.004,
+      collisionFilter: { category: 0x0001, mask: 0x0000 },
+    };
+  }
+
+  /** + 号补蛋：水平落在图层「扭蛋掉落范围」描边区 DROP_ZONE（机台 110,165 240×343）内 */
+  function randomSpawnXInDropZone() {
+    const dz = DROP_ZONE;
+    const innerLeft = dz.x + EGG_R_PHYS + 2;
+    const innerRight = dz.x + dz.w - EGG_R_PHYS - 2;
+    return innerLeft + Math.random() * Math.max(0, innerRight - innerLeft);
+  }
+
+  let plusBurstTimer = null;
+  let plusBurstActive = false;
+
+  function spawnSinglePlusEgg() {
+    if (eggs.length >= MAX_EGGS) return false;
+    const x = randomSpawnXInDropZone();
+    const y = -EGG_R_PHYS - 8 - Math.random() * 55;
+    const body = Bodies.circle(x, y, EGG_R_PHYS, eggStyle());
+    Body.setVelocity(body, { x: (Math.random() - 0.5) * 1.2, y: Math.random() * 0.8 });
+    Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.12);
+    body._spawnedFromPlus = true;
+    Composite.add(world, body);
+    eggs.push(body);
+    updatePlusState();
+    return true;
+  }
+
+  function finishPlusBurst() {
+    if (plusBurstTimer !== null) {
+      clearTimeout(plusBurstTimer);
+      plusBurstTimer = null;
+    }
+    plusBurstActive = false;
+    updatePlusState();
+    updateButtons();
+  }
+
+  /** 一次 +：依次掉落 4 颗，水平位置均在 DROP_ZONE 内随机；中途满 10 颗则停止 */
+  function startPlusBurst() {
+    if (plusBurstActive || busy || eggs.length >= MAX_EGGS) return;
+    startRushCountdown();
+    plusBurstActive = true;
+    updatePlusState();
+    let spawned = 0;
+    function spawnNext() {
+      if (eggs.length >= MAX_EGGS) {
+        finishPlusBurst();
+        return;
+      }
+      if (!spawnSinglePlusEgg()) {
+        finishPlusBurst();
+        return;
+      }
+      spawned++;
+      if (spawned >= PLUS_BURST_COUNT) {
+        finishPlusBurst();
+        return;
+      }
+      if (eggs.length >= MAX_EGGS) {
+        finishPlusBurst();
+        return;
+      }
+      plusBurstTimer = setTimeout(spawnNext, PLUS_BURST_INTERVAL_MS);
+    }
+    spawnNext();
+  }
+
+  function clearEggs() {
+    if (plusBurstTimer !== null) {
+      clearTimeout(plusBurstTimer);
+      plusBurstTimer = null;
+    }
+    plusBurstActive = false;
+    stopRushTimer();
+    rushRoundActive = false;
+    rushExpired = false;
+    rushRemainingSec = 0;
+    updateRushCountdownDom();
+    eggs.forEach((b) => Composite.remove(world, b));
+    eggs.length = 0;
+    heldEgg = null;
+    busy = false;
+    ropeExtend = 0;
+    score = 0;
+    updateScoreDom();
+    syncClawDom();
+    clawEl.src = closePath(9);
+    updatePlusState();
+    updateButtons();
+  }
+
+  function updatePlusState() {
+    plusBtn.disabled = eggs.length >= MAX_EGGS || busy || plusBurstActive;
+  }
+
+  /**
+   * 爪顶 y：未夹/下探/收绳中用 idle；夹住且收绳完毕用抓起 Frame（爪顶 play 34）
+   */
+  function clawTopY() {
+    if (heldEgg && ropeExtend === 0) return CLAW_TOP_HELD_RETRACT;
+    return CLAW_TOP_IDLE + ropeExtend;
+  }
+
+  /** 绳顶 y：抓起收绳后为 play −5（机台绳 y=160） */
+  function ropeTopVisual() {
+    return ROPE_TOP + (heldEgg && ropeExtend === 0 ? HELD_ROPE_TOP_DELTA : 0);
+  }
+
+  function clawLeftPlay() {
+    return clawPanX + CLAW_LEFT_BASE;
+  }
+
+  function clawCenterX() {
+    return clawLeftPlay() + CLAW_W / 2;
+  }
+
+  function eggDyFromClawTop() {
+    if (heldEgg && ropeExtend === 0) return PEN_EGG_DY_HELD;
+    return PEN_EGG_DY_GRAB;
+  }
+
+  /** 仅下探抓取时用：始终以未抓起 Frame 的爪顶基准 + 伸长量计算对齐高度 */
+  function grabAlignSlotY() {
+    return CLAW_TOP_IDLE + ropeExtend + PEN_EGG_DY_GRAB;
+  }
+
+  function heldEggCenterPlay() {
+    return {
+      x: clawLeftPlay() + PEN_EGG_CENTER_DX_FROM_CLAW_LEFT,
+      y: clawTopY() + eggDyFromClawTop(),
+    };
+  }
+
+  /** 蛋心是否在「掉落成功判定范围」内（移动范围坐标） */
+  function eggCenterInSuccessZone(cx, cy) {
+    return (
+      cx >= SUCCESS_ZONE.x &&
+      cx <= SUCCESS_ZONE.x + SUCCESS_ZONE.w &&
+      cy >= SUCCESS_ZONE.y &&
+      cy <= SUCCESS_ZONE.y + SUCCESS_ZONE.h
+    );
+  }
+
+  function heldCenterInSuccessZone() {
+    const c = heldEggCenterPlay();
+    return eggCenterInSuccessZone(c.x, c.y);
+  }
+
+  /**
+   * 从爪 drop 且已碰过挡板（_hitBaffleAfterDrop）后，蛋心进入判定区时调用：切竖槽下落并自底边消失。
+   * 切换前全程为普通刚体碰撞；切换后无碰撞 + 横向钳制，仅保留竖直速度分量。
+   */
+  function activateChuteFallFromNormal(b) {
+    const fr = CHUTE_FALL_RANGE;
+    const il = fr.x + EGG_R_PHYS;
+    const ir = fr.x + fr.w - EGG_R_PHYS;
+    const nx = Math.max(il, Math.min(ir, b.position.x));
+    Body.setPosition(b, { x: nx, y: b.position.y });
+    b._chuteFall = true;
+    b.label = 'eggChuteFall';
+    b.collisionFilter = { category: 0x0001, mask: 0x0000 };
+    b.frictionAir = 0.004;
+    Body.setAngularVelocity(b, 0);
+    Body.setVelocity(b, { x: 0, y: b.velocity.y });
+  }
+
+  function syncClawDom() {
+    clawRig.style.transform = `translateX(${clawPanX}px)`;
+    const rt = ropeTopVisual();
+    const ct = clawTopY();
+    ropeEl.style.left = `${ROPE_LEFT_IN_RIG}px`;
+    ropeEl.style.top = `${rt}px`;
+    ropeEl.style.height = `${Math.max(ROPE_BASE_H, ct - rt)}px`;
+    clawEl.style.top = `${ct}px`;
+  }
+
+  function findEggAtGrab() {
+    const cx = clawCenterX();
+    const slotY = grabAlignSlotY();
+    for (let i = eggs.length - 1; i >= 0; i--) {
+      const b = eggs[i];
+      const dxCenter = Math.abs(b.position.x - cx);
+      const dyDepth = Math.abs(b.position.y - slotY);
+      if (dxCenter <= ALIGN_CENTER_X_MAX && dyDepth <= ALIGN_DEPTH_Y_MAX) {
+        return { body: b, index: i };
+      }
+    }
+    return null;
+  }
+
+  function playOpenAnim() {
+    return new Promise((resolve) => {
+      const dur = 500;
+      const n = OPEN_FRAMES;
+      const t0 = performance.now();
+      function tick(now) {
+        const t = Math.min(1, (now - t0) / dur);
+        const idx = Math.min(n - 1, Math.floor(t * n));
+        clawEl.src = openPath(idx);
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          clawEl.src = openPath(5);
+          resolve();
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function playCloseAnim() {
+    return new Promise((resolve) => {
+      const dur = 500;
+      const from = 1;
+      const to = 9;
+      const count = to - from + 1;
+      const t0 = performance.now();
+      function tick(now) {
+        const t = Math.min(1, (now - t0) / dur);
+        const idx = from + Math.min(count - 1, Math.floor(t * count));
+        clawEl.src = closePath(idx);
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          clawEl.src = closePath(9);
+          resolve();
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function runGrab() {
+    if (busy || heldEgg) return Promise.resolve();
+    busy = true;
+    updateButtons();
+    const descendSpeed = 2.8;
+
+    return playOpenAnim().then(
+      () =>
+        new Promise((resolve) => {
+          function stepDescend() {
+            ropeExtend = Math.min(MAX_ROPE_EXTEND, ropeExtend + descendSpeed);
+            syncClawDom();
+
+            const hit = findEggAtGrab();
+            if (hit) {
+              heldAngle = hit.body.angle;
+              Composite.remove(world, hit.body);
+              eggs.splice(hit.index, 1);
+              heldEgg = true;
+              retractSequence(true).then(() => {
+                clawEl.src = openPath(5);
+                busy = false;
+                updateButtons();
+                resolve();
+              });
+              return;
+            }
+
+            const slotY = grabAlignSlotY();
+            const atFloor = slotY + EGG_R_PHYS >= H - 4;
+            const atMaxRope = ropeExtend >= MAX_ROPE_EXTEND;
+            if (atFloor || atMaxRope) {
+              retractSequence(false).then(() => {
+                busy = false;
+                updateButtons();
+                resolve();
+              });
+              return;
+            }
+
+            requestAnimationFrame(stepDescend);
+          }
+          requestAnimationFrame(stepDescend);
+        })
+    );
+  }
+
+  function retractSequence(gotEgg) {
+    const speed = 2.5;
+    return new Promise((resolve) => {
+      function stepRetract() {
+        ropeExtend = Math.max(0, ropeExtend - speed);
+        syncClawDom();
+        if (ropeExtend > 0) {
+          requestAnimationFrame(stepRetract);
+        } else if (!gotEgg) {
+          playCloseAnim().then(() => {
+            clawEl.src = closePath(9);
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      }
+      requestAnimationFrame(stepRetract);
+    });
+  }
+
+  async function runDrop() {
+    if (!heldEgg || busy) return;
+    busy = true;
+    updateButtons();
+
+    const chuteDrop = heldCenterInSuccessZone();
+    let x;
+    let y;
+    let vx;
+    let vy;
+
+    if (chuteDrop) {
+      const fr = CHUTE_FALL_RANGE;
+      const innerLeft = fr.x + EGG_R_PHYS;
+      const innerRight = fr.x + fr.w - EGG_R_PHYS;
+      const c = heldEggCenterPlay();
+      x = Math.max(innerLeft, Math.min(innerRight, c.x));
+      y = Math.max(EGG_R_PHYS + 1, Math.min(fr.y + fr.h - EGG_R_PHYS - 1, c.y));
+      vx = 0;
+      vy = 0;
+    } else {
+      const c = heldEggCenterPlay();
+      x = Math.max(EGG_R_PHYS, Math.min(W - EGG_R_PHYS, c.x));
+      y = Math.max(EGG_R_PHYS, Math.min(H - EGG_R_PHYS - 2, c.y));
+      vx = (Math.random() - 0.5) * 0.8;
+      vy = 0.5;
+    }
+
+    const body = Bodies.circle(x, y, EGG_R_PHYS, chuteDrop ? eggStyleChuteFall() : eggStyle());
+    Body.setAngle(body, heldAngle);
+    Body.setVelocity(body, { x: vx, y: vy });
+    if (chuteDrop) {
+      body._chuteFall = true;
+      Body.setAngularVelocity(body, 0);
+    }
+    body._droppedFromClaw = true;
+    Composite.add(world, body);
+    eggs.push(body);
+
+    heldEgg = null;
+    await playCloseAnim();
+    clawEl.src = closePath(9);
+    syncClawDom();
+
+    busy = false;
+    updateButtons();
+  }
+
+  function updateButtons() {
+    leftBtn.disabled = busy;
+    rightBtn.disabled = busy;
+    grabBtn.disabled = busy || !!heldEgg;
+    dropBtn.disabled = busy || !heldEgg;
+    resetBtn.disabled = busy;
+    updatePlusState();
+  }
+
+  Events.on(engine, 'beforeUpdate', () => {
+    const fr = CHUTE_FALL_RANGE;
+    const chuteInnerLeft = fr.x + EGG_R_PHYS;
+    const chuteInnerRight = fr.x + fr.w - EGG_R_PHYS;
+    const chuteBottom = fr.y + fr.h;
+    const dz = DROP_ZONE;
+    const dropZoneInnerLeft = dz.x + EGG_R_PHYS;
+    const dropZoneInnerRight = dz.x + dz.w - EGG_R_PHYS;
+
+    for (let i = 0; i < eggs.length; i++) {
+      const b = eggs[i];
+
+      if (
+        b._droppedFromClaw &&
+        !b._chuteFall &&
+        b._hitBaffleAfterDrop &&
+        eggCenterInSuccessZone(b.position.x, b.position.y)
+      ) {
+        activateChuteFallFromNormal(b);
+      }
+
+      if (b._chuteFall) {
+        const nx = Math.max(chuteInnerLeft, Math.min(chuteInnerRight, b.position.x));
+        if (nx !== b.position.x) Body.setPosition(b, { x: nx, y: b.position.y });
+        Body.setVelocity(b, { x: 0, y: b.velocity.y });
+        Body.setAngularVelocity(b, 0);
+        if (!b._scoreTriggerDone && eggCenterInScoreTriggerZone(b.position.x, b.position.y)) {
+          b._scoreTriggerDone = true;
+          onScoreTriggerAward();
+        }
+        if (b.position.y + EGG_R_PHYS > chuteBottom) {
+          Composite.remove(world, b);
+          eggs.splice(i, 1);
+          i -= 1;
+          updatePlusState();
+        }
+        continue;
+      }
+
+      if (!b._enteredPlay && b.position.y > EGG_R_PHYS * 3) b._enteredPlay = true;
+
+      const minY = EGG_R_PHYS + 1;
+      if (b._enteredPlay && b.position.y < minY && b.velocity.y < 0) {
+        Body.setPosition(b, { x: b.position.x, y: minY });
+        Body.setVelocity(b, { x: b.velocity.x * 0.96, y: Math.abs(b.velocity.y) * 0.35 });
+      }
+      if (b._spawnedFromPlus) {
+        if (b.position.x < dropZoneInnerLeft) {
+          Body.setPosition(b, { x: dropZoneInnerLeft, y: b.position.y });
+          Body.setVelocity(b, { x: Math.abs(b.velocity.x) * 0.4, y: b.velocity.y });
+        }
+        if (b.position.x > dropZoneInnerRight) {
+          Body.setPosition(b, { x: dropZoneInnerRight, y: b.position.y });
+          Body.setVelocity(b, { x: -Math.abs(b.velocity.x) * 0.4, y: b.velocity.y });
+        }
+      } else {
+        if (b.position.x < EGG_R_PHYS) {
+          Body.setPosition(b, { x: EGG_R_PHYS, y: b.position.y });
+          Body.setVelocity(b, { x: Math.abs(b.velocity.x) * 0.4, y: b.velocity.y });
+        }
+        if (b.position.x > W - EGG_R_PHYS) {
+          Body.setPosition(b, { x: W - EGG_R_PHYS, y: b.position.y });
+          Body.setVelocity(b, { x: -Math.abs(b.velocity.x) * 0.4, y: b.velocity.y });
+        }
+      }
+    }
+  });
+
+  function drawEggFallback(cx, cy, angle) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    const g = ctx.createRadialGradient(-6, -8, 4, 0, 0, EGG_R_DRAW);
+    g.addColorStop(0, '#ff8ec8');
+    g.addColorStop(0.45, '#ff5ba3');
+    g.addColorStop(1, '#c73d7a');
+    ctx.beginPath();
+    ctx.arc(0, 0, EGG_R_DRAW, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    const ready = eggImg.complete && eggImg.naturalWidth > 0;
+
+    for (let i = 0; i < eggs.length; i++) {
+      const b = eggs[i];
+      const { x, y } = b.position;
+      const a = b.angle;
+      if (ready) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a);
+        ctx.drawImage(eggImg, -EGG_R_DRAW, -EGG_R_DRAW, EGG_R_DRAW * 2, EGG_R_DRAW * 2);
+        ctx.restore();
+      } else {
+        drawEggFallback(x, y, a);
+      }
+    }
+
+    if (heldEgg) {
+      const { x: hx, y: hy } = heldEggCenterPlay();
+      if (ready) {
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(heldAngle);
+        ctx.drawImage(eggImg, -EGG_R_DRAW, -EGG_R_DRAW, EGG_R_DRAW * 2, EGG_R_DRAW * 2);
+        ctx.restore();
+      } else {
+        drawEggFallback(hx, hy, heldAngle);
+      }
+    }
+  }
+
+  const runner = Runner.create();
+  Runner.run(runner, engine);
+
+  (function loop() {
+    requestAnimationFrame(loop);
+    render();
+  })();
+
+  let panRepeatTimer = null;
+  let panRepeatDir = 0;
+
+  function clearPanRepeat() {
+    if (panRepeatTimer !== null) {
+      clearInterval(panRepeatTimer);
+      panRepeatTimer = null;
+    }
+    panRepeatDir = 0;
+  }
+
+  function panMoveStep(dir) {
+    if (busy) return false;
+    const prev = clawPanX;
+    if (dir < 0) clawPanX = Math.max(PAN_MIN, clawPanX - PAN_STEP);
+    else clawPanX = Math.min(PAN_MAX, clawPanX + PAN_STEP);
+    syncClawDom();
+    return clawPanX !== prev;
+  }
+
+  function startPanRepeat(dir, el, e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (busy) return;
+    clearPanRepeat();
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch (_) {}
+    panRepeatDir = dir;
+    const moved = panMoveStep(dir);
+    if (!moved && dir < 0) {
+      endPanRepeat(el, e);
+      return;
+    }
+    if (!moved && dir > 0) {
+      endPanRepeat(el, e);
+      return;
+    }
+    panRepeatTimer = setInterval(() => {
+      if (busy) {
+        clearPanRepeat();
+        return;
+      }
+      const ok = panMoveStep(panRepeatDir);
+      if (!ok) clearPanRepeat();
+    }, PAN_REPEAT_MS);
+  }
+
+  function endPanRepeat(el, e) {
+    clearPanRepeat();
+    if (e && e.pointerId != null) {
+      try {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+  }
+
+  leftBtn.addEventListener('pointerdown', (e) => startPanRepeat(-1, leftBtn, e));
+  leftBtn.addEventListener('pointerup', (e) => endPanRepeat(leftBtn, e));
+  leftBtn.addEventListener('pointercancel', (e) => endPanRepeat(leftBtn, e));
+  leftBtn.addEventListener('lostpointercapture', () => clearPanRepeat());
+
+  rightBtn.addEventListener('pointerdown', (e) => startPanRepeat(1, rightBtn, e));
+  rightBtn.addEventListener('pointerup', (e) => endPanRepeat(rightBtn, e));
+  rightBtn.addEventListener('pointercancel', (e) => endPanRepeat(rightBtn, e));
+  rightBtn.addEventListener('lostpointercapture', () => clearPanRepeat());
+
+  grabBtn.addEventListener('click', () => {
+    runGrab();
+  });
+
+  dropBtn.addEventListener('click', () => {
+    runDrop();
+  });
+
+  plusBtn.addEventListener('click', () => startPlusBurst());
+  resetBtn.addEventListener('click', () => clearEggs());
+
+  syncClawDom();
+  clawEl.src = closePath(9);
+  updateButtons();
+})();
+  </script>
+</body>
+</html>
