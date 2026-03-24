@@ -19,10 +19,11 @@
       font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Inter', sans-serif;
     }
 
+    /* Frame「扭蛋机_未抓起扭蛋」5CGSC：375×752 */
     .machine {
       position: relative;
       width: 375px;
-      height: 812px;
+      height: 752px;
       background: #ffffff;
       overflow: hidden;
       flex-shrink: 0;
@@ -226,10 +227,10 @@
       height: 72px;
     }
 
-    /* Frame「扭蛋机_成功掉落」图层「+5s」EhMck：机台 (142,7) 88×49 */
+    /* Frame「扭蛋机_成功掉落」图层「+5s」EhMck：机台 (142,467) 88×49 */
     .bonus-5s-fx {
       left: 142px;
-      top: 7px;
+      top: 467px;
       width: 88px;
       height: 49px;
     }
@@ -242,11 +243,11 @@
       height: 59px;
     }
 
-    /* Frame「扭蛋机_未抓起扭蛋」倒计时文本 5pGt2：机台 (115.5,51.5) */
+    /* Frame「扭蛋机_成功掉落」倒计时文本 dM4BT：机台 (115.5,518.5) */
     .rush-countdown {
       position: absolute;
       left: 115.5px;
-      top: 51.5px;
+      top: 518.5px;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
       font-size: 16px;
       font-style: italic;
@@ -277,22 +278,6 @@
       }
     }
 
-    .hint {
-      max-width: 375px;
-      margin-top: 12px;
-      padding: 0 12px;
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.55);
-      line-height: 1.5;
-      text-align: center;
-    }
-
-    .hint code {
-      font-size: 11px;
-      background: rgba(255, 255, 255, 0.08);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
   </style>
 </head>
 <body>
@@ -359,10 +344,6 @@
       <img src="./明天再来吧.png" alt="" draggable="false" onerror="this.style.visibility='hidden'" />
     </div>
   </div>
-
-  <p class="hint">
-    参考 Frame <strong>扭蛋机_未抓起扭蛋</strong> / <strong>扭蛋机_抓起扭蛋</strong>：绳长随爪顶自动伸长；夹住收绳后爪位对齐抓起 Frame。图层 <strong>挡板</strong> 使用 <code>挡板.png</code> 叠在 canvas 上（z 在蛋与爪之间）；物理为图层 <strong>挡板范围</strong>（Frame「扭蛋机_未抓起扭蛋」机台 103,418，18×82）。从爪 <code>drop</code>：若在夹持时已处于成功区则直接竖槽消失；否则保持真实碰撞直至先碰到 <strong>挡板范围</strong>，再在进入成功区后，才沿 <strong>扭蛋掉落范围</strong>（填充 83×388）竖直下落并穿出底边消失。竖槽下落中，仅当蛋心进入 Frame「扭蛋机_成功掉落」图层 <strong>积分动画触发范围</strong>（机台 31,459 85×113）时 <strong>积分 +1</strong> 并播放 <code>积分+1.png</code> 动效（每颗蛋一次）。背景 <code>扭蛋机bg.png</code>，防穿帮 <code>防穿帮3.png</code>。
-  </p>
 
   <script>
 (function () {
